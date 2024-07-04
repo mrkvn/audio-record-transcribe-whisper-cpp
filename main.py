@@ -1,5 +1,8 @@
 import multiprocessing
+import os
+import shutil
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -8,6 +11,11 @@ from datetime import datetime
 
 import numpy as np
 import pyaudio
+
+recordings_dir = "recordings"
+os.makedirs(recordings_dir, exist_ok=True)
+processed_dir = "processed"
+os.makedirs(processed_dir, exist_ok=True)
 
 # Parameters
 FORMAT = pyaudio.paInt16  # Audio format (16-bit PCM)
@@ -53,26 +61,42 @@ recording_started = False
 def save_recording(frames, start_time):
     if frames:
         output_filename = start_time.strftime("%Y-%m-%d-%H%M%S") + ".wav"
-        wf = wave.open(output_filename, "wb")
+        output_full_path = f"{recordings_dir}/{output_filename}"
+        wf = wave.open(output_full_path, "wb")
         wf.setnchannels(CHANNELS)
         wf.setsampwidth(audio.get_sample_size(FORMAT))
         wf.setframerate(RATE)
         wf.writeframes(b"".join(frames))
         wf.close()
         print(f"Recording saved to {output_filename}")
-        return output_filename
+        return output_full_path
 
 
 def process_audio(file_path):
     # Placeholder function for audio processing
     print(f"Processing {file_path}")
     # Implement your audio processing logic here
+    command = [
+        "/Users/mrkvn/code/repo/github/whisper.cpp/main",
+        "-m",
+        "/Users/mrkvn/code/repo/github/whisper.cpp/models/ggml-medium.en.bin",
+        # "~/code/repo/github/whisper.cpp/models/ggml-large-v3-q5_0.bin",
+        "-f",
+        file_path,
+        "-otxt",
+    ]
+    result = subprocess.run(command, capture_output=True, text=True)
+    # Print the output and error (if any)
+    print("Output:", result.stdout)
+    print("Error:", result.stderr)
+
+    shutil.move(file_path, f"processed/{file_path.split('/')[-1]}")  # Move processed file to processed directory
 
 
 def save_and_process_recording(frames, start_time):
-    output_filename = save_recording(frames, start_time)
-    if output_filename:
-        process = multiprocessing.Process(target=process_audio, args=(output_filename,))
+    output_full_path = save_recording(frames, start_time)
+    if output_full_path:
+        process = multiprocessing.Process(target=process_audio, args=(output_full_path,))
         process.start()
 
 
@@ -92,8 +116,29 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 
+def process_transcription():
+    while True:
+        for file in os.listdir(recordings_dir):
+            if file.endswith(".txt"):
+                transcription = ""
+                with open(f"{recordings_dir}/{file}", "r") as f:
+                    for line in f:
+                        if line.strip().startswith("["):
+                            continue
+                        transcription += line.strip() + "\n"
+                with open("transcription.txt", "a") as tf:
+                    tf.write(transcription)
+                os.remove(f"{recordings_dir}/{file}")
+
+
+def accumulate_transcription():
+    p = multiprocessing.Process(target=process_transcription)
+    p.start()
+
+
 def main():
     global silence_start_time, start_time, frames, recording_started
+    accumulate_transcription()
 
     print("Monitoring for audio... Press CTRL-C to stop.")
     signal.signal(signal.SIGINT, signal_handler)

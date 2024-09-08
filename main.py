@@ -25,6 +25,7 @@ RATE = 16000  # Sampling rate (samples per second)
 CHUNK = 1024  # Buffer size
 THRESHOLD = 2  # Lowered audio threshold for starting the recording
 SILENCE_DURATION = 3  # Duration of silence (in seconds) to stop recording
+RECORDING_INTERVAL = 3  # Interval to save recordings in seconds
 
 # Initialize PyAudio
 audio = pyaudio.PyAudio()
@@ -35,7 +36,6 @@ for i in range(audio.get_device_count()):
     device_info = audio.get_device_info_by_index(i)
     if device_info["maxInputChannels"] >= CHANNELS:
         device_index = i
-        print(f"Using device {i}: {device_info['name']}")
         break
 
 if device_index is None:
@@ -73,23 +73,17 @@ def save_recording(frames, start_time):
 
 
 def process_audio(file_path):
-    # Placeholder function for audio processing
-    print(f"Processing {file_path}")
-    # Implement your audio processing logic here
+    print("processing audio", file_path)
     command = [
-        "/Users/mrkvn/code/repo/github/whisper.cpp/main",
+        "/Users/mrkvn/code/repo/github/whisper.cpp/main",  # whisper cpp main path
         "-m",
-        "/Users/mrkvn/code/repo/github/whisper.cpp/models/ggml-medium.en.bin",
-        # "~/code/repo/github/whisper.cpp/models/ggml-large-v3-q5_0.bin",
+        "/Users/mrkvn/code/repo/github/whisper.cpp/models/ggml-medium.en.bin",  # whisper cpp model path
         "-f",
         file_path,
         "-otxt",
     ]
-    result = subprocess.run(command, capture_output=True, text=True)
-    # Print the output and error (if any)
-    print("Output:", result.stdout)
-    print("Error:", result.stderr)
-
+    # subprocess.run(command, capture_output=True, text=True)
+    subprocess.run(command, capture_output=True, text=True)
     shutil.move(file_path, f"processed/{file_path.split('/')[-1]}")  # Move processed file to processed directory
 
 
@@ -118,7 +112,7 @@ def signal_handler(sig, frame):
 
 def process_transcription():
     while True:
-        for file in os.listdir(recordings_dir):
+        for file in sorted(os.listdir(recordings_dir)):
             if file.endswith(".txt"):
                 transcription = ""
                 with open(f"{recordings_dir}/{file}", "r") as f:
@@ -128,6 +122,7 @@ def process_transcription():
                         transcription += line.strip() + "\n"
                 with open("transcription.txt", "a") as tf:
                     tf.write(transcription)
+                    tf.flush()
                 os.remove(f"{recordings_dir}/{file}")
 
 
@@ -166,14 +161,14 @@ def main():
                     recording_started = True
                     frames = []  # Reset frames for new recording
                 else:
-                    if time.time() - start_timestamp >= 3:
+                    if time.time() - start_timestamp >= RECORDING_INTERVAL:
                         save_recording_thread(frames, start_time)
                         recording_started = False
                         frames = []
                         silence_start_time = None
             elif recording_started:  # silence while recording
                 frames.append(data)
-                if time.time() - start_timestamp >= 3:
+                if time.time() - start_timestamp >= RECORDING_INTERVAL:
                     save_recording_thread(frames, start_time)
                     recording_started = False
                     frames = []
